@@ -4,11 +4,29 @@ set -e
 WALLET="48PBd6PodhS4AbafdeBMijb8QjEu6A3c43oryNyTNVj28vQZeky9pb618hzeEw4vbBaxukF7EuE46MHr1JQq1xTKTTtn4Fp"
 POOL="pool.supportxmr.com:3333"
 
-echo "[1/5] Установка зависимостей..."
+echo "[1/6] Updating system..."
 apt update -y
-apt install -y curl wget tar
+apt install -y curl wget tar screen
 
-echo "[2/5] Получение последней версии XMRig..."
+echo "[2/6] Creating 16GB swap..."
+
+if ! swapon --show | grep -q "/swapfile"; then
+    if command -v fallocate >/dev/null 2>&1; then
+        fallocate -l 16G /swapfile
+    else
+        dd if=/dev/zero of=/swapfile bs=1M count=16384
+    fi
+
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+
+    if ! grep -q "/swapfile" /etc/fstab; then
+        echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    fi
+fi
+
+echo "[3/6] Downloading latest XMRig..."
 
 LATEST=$(curl -fsSL https://api.github.com/repos/xmrig/xmrig/releases/latest | grep '"tag_name"' | cut -d '"' -f4)
 
@@ -18,17 +36,20 @@ cd /root
 
 rm -rf xmrig-* xmrig.tar.gz
 
-wget -O xmrig.tar.gz \
+wget -q -O xmrig.tar.gz \
 "https://github.com/xmrig/xmrig/releases/download/${LATEST}/${FILE}"
 
-echo "[3/5] Распаковка..."
+echo "[4/6] Extracting..."
+
 tar -xzf xmrig.tar.gz
 
-DIR=$(find . -maxdepth 1 -type d -name "xmrig-*" | head -1)
+DIR=$(find /root -maxdepth 1 -type d -name "xmrig-*" | head -1)
 
 cd "$DIR"
 
-echo "[4/5] Создание config.json..."
+chmod +x xmrig
+
+echo "[5/6] Creating config..."
 
 cat > config.json <<EOF
 {
@@ -53,8 +74,19 @@ cat > config.json <<EOF
 }
 EOF
 
-echo "[5/5] Запуск..."
+echo "[6/6] Starting miner..."
 
-chmod +x xmrig
+screen -S xmrig -X quit >/dev/null 2>&1 || true
+screen -dmS xmrig ./xmrig
 
-./xmrig
+echo
+echo "=================================="
+echo "Miner started successfully!"
+echo "Swap: $(free -h | awk '/Swap:/ {print $2}')"
+echo
+echo "Attach to screen:"
+echo "screen -r xmrig"
+echo
+echo "Detach from screen:"
+echo "Ctrl+A then D"
+echo "=================================="
